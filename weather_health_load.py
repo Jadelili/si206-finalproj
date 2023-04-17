@@ -68,7 +68,7 @@ def get_lat(f_r, f_w):
         new_d[s_city[0][0]] = s_city[0][1][1]
         if len(s_city) > 1:
             new_d[s_city[1][0]] = s_city[1][1][1]
-            # new_d[s_city[2][0]] = s_city[2][1][1]
+            new_d[s_city[2][0]] = s_city[2][1][1]
         two_city_d[state] = new_d
     write_json(f_w, two_city_d)
     # print(two_city_d)
@@ -84,7 +84,6 @@ def cache_weather_data(two_city_d, weatherfile):
             dic = {"lat":two_city_d[state][city][0], "lon":two_city_d[state][city][1], "appid":"0ed702778efe831f0e3d546dc34eece3"}
             result = get_api(base, dic)
             d[city] = result
-            # weather_d[state] = d        # {state:{city:data, city2:data}}
             if state not in weather_d.keys():
                 weather_d[state] = d
             else:
@@ -105,32 +104,35 @@ def process_weather_data(weatherfile_r, weatherfile):
             total_h_median = 0
             total_c_median = 0 
             count = 0
+            try: 
+                for i in weather_r[state][city]["result"]:
+                    if i["month"] in [11,12,1,2,3]: 
+                        count += 1
+                        total_t_median += i["temp"]["median"]
+                        total_ps_median += i["pressure"]["median"]
+                        total_h_median += i["humidity"]["median"]
+                        total_c_median += i["clouds"]["median"]
+                    t_avg = total_t_median / count
+                    ps_avg = total_ps_median / count
+                    hum_avg = total_h_median / count
+                    c_avg = total_c_median / count
 
-            for i in weather_r[state][city]["result"]:
-                if i["month"] in [11,12,1,2,3]: 
-                    count += 1
-                    total_t_median += i["temp"]["median"]
-                    total_ps_median += i["pressure"]["median"]
-                    total_h_median += i["humidity"]["median"]
-                    total_c_median += i["clouds"]["median"]
-                t_avg = total_t_median / count
-                ps_avg = total_ps_median / count
-                hum_avg = total_h_median / count
-                c_avg = total_c_median / count
+                    d["temp_medium"] = t_avg
+                    d["pressure_medium"] = ps_avg
+                    d["humidity_medium"] = hum_avg
+                    d["clouds_medium"] = c_avg
 
-                d["temp_medium"] = t_avg
-                d["pressure_medium"] = ps_avg
-                d["humidity_medium"] = hum_avg
-                d["clouds_medium"] = c_avg
-
-                if city not in city_d.keys():
-                    city_d[city] = d
-                elif state == "ME" and city == "Portland":
-                    city_d["Portland"] = d
-                elif state == "WV" and city == "Charleston":
-                    city_d["Charleston"]= d
-                elif state == "MD" and city == "Columbia":
-                    city_d["Columbia"] = d
+                    if city not in city_d.keys():
+                        city_d[city] = d
+                    elif state == "ME" and city == "Portland":
+                        city_d["Portland"] = d
+                    elif state == "WV" and city == "Charleston":
+                        city_d["Charleston"]= d
+                    elif state == "MD" and city == "Columbia":
+                        city_d["Columbia"] = d
+                
+            except:
+                continue
 
         if state not in list(weather_d.keys()):
             weather_d[state] = city_d
@@ -216,18 +218,37 @@ def make_state_table(filename, cur, conn):
         count += 1
     conn.commit()
 
-
 def make_weather_table(filename, cur, conn):
     weather = load_json(filename)
-    cur.execute('''DROP TABLE IF EXISTS Weather''')
-    cur.execute('''CREATE TABLE Weather (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
+    # cur.execute('''DROP TABLE IF EXISTS Weather''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS Weather (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
     temp FLOAT, pressure FLOAT, humidity FLOAT, clouds FLOAT)''')
     # cur.execute('''CREATE TABLE IF NOT EXISTS Weather (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
     # temp FLOAT, pressure FLOAT, humidity FLOAT, clouds FLOAT)''')
+    
+    #Determine how many rows are present in db currently
+    cur.execute('''SELECT COUNT(*) FROM Weather''')
+    num_rows = cur.fetchone()[0]
 
-    count = 0
+    cur.execute('''SELECT MAX(id) FROM Weather''')
+    last_id = cur.fetchone()[0]
+    if last_id is None:
+       last_id = -1
+    start_id = last_id +1
+
+    #Set a limit to only allow 25 items to be added to the database each time the code is run
+    items_adding = 0
+
     for state in weather:
+        if num_rows>=100:
+            break
+        if items_adding >= 25:
+            break
         for city in weather[state]:
+            if num_rows >= 100:
+                break
+            if items_adding >= 25:
+                break
             city_n = city
             temp = round(weather[state][city]["temp_medium"], 2)
             ps = round(weather[state][city]["pressure_medium"], 2)
@@ -236,9 +257,13 @@ def make_weather_table(filename, cur, conn):
             cur.execute('SELECT id FROM State WHERE state_abbr = ?', (state, ))
             state_id = cur.fetchone()
             cur.execute("INSERT OR IGNORE INTO Weather (id, city_name, state_id, temp, pressure, humidity, clouds) VALUES (?,?,?,?,?,?,?)",
-                        (count, city_n, state_id[0], temp, ps, hum, clouds))
-            count += 1
-        conn.commit()
+                        (start_id, city_n, state_id[0], temp, ps, hum, clouds))    
+            items_adding += 1
+            num_rows += 1
+            start_id += 1
+    conn.commit()
+    if items_adding >= 25:
+        items_adding = 0
 
 
 def make_health_table(filename, cur, conn):
@@ -266,13 +291,13 @@ def make_health_table(filename, cur, conn):
 
 
 def main():
-    two_city_d = get_lat("health_data_r.json", "location_data.json")
+    two_city_d = get_lat("health_data_r.json", "coordinate.json")
     ### cache_weather_data(two_city_d, "weather_data_raw.json")
-    # process_weather_data("weather_data_r.json", "weather_data.json")
-    # process_health_data("health_data_r.json", "health_data.json", two_city_d)
+    process_weather_data("weather_data_raw.json", "weather_data.json")
+    process_health_data("health_data_r.json", "health_data.json", two_city_d)
     cur, conn = open_database("Mental_health.db")
-    # make_state_table("weather_data.json", cur, conn)
-    # make_weather_table("weather_data.json", cur, conn)
+    make_state_table("weather_data.json", cur, conn)
+    make_weather_table("weather_data.json", cur, conn)
     # make_health_table("health_data.json", cur, conn)
     ### make_state_city_table("location_data.json", cur, conn)
 
