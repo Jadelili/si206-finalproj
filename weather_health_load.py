@@ -212,83 +212,125 @@ def make_state_city_table(filename, cur, conn):
 def make_state_table(filename, cur, conn):
     loc = load_json(filename)
     cur.execute("CREATE TABLE IF NOT EXISTS State (id INTEGER PRIMARY KEY, state_abbr TEXT)")
-    count = 0
+    
+    # get num states already in table
+    cur.execute("SELECT COUNT(*) FROM State")
+    num_states_added = cur.fetchone()[0]
+    
+    # counter for items added in this run
+    items_added = 0
+    
     for state in loc:
-        cur.execute("INSERT OR IGNORE INTO State (id, state_abbr) VALUES (?,?)", (count, state))
-        count += 1
+        # Add states tht haven't been added
+        if items_added >= 25 or num_states_added >= len(loc):
+            break
+            
+        cur.execute("SELECT id FROM State WHERE state_abbr = ?", (state,))
+        state_id = cur.fetchone()
+        if state_id is None:
+            cur.execute("INSERT INTO State (id, state_abbr) VALUES (?,?)", (num_states_added, state))
+            num_states_added += 1
+            items_added += 1
+            
     conn.commit()
+
+
 
 def make_weather_table(filename, cur, conn):
     weather = load_json(filename)
-    # cur.execute('''DROP TABLE IF EXISTS Weather''')
+
+    # create Weather table if it doesn't already exist
     cur.execute('''CREATE TABLE IF NOT EXISTS Weather (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
     temp FLOAT, pressure FLOAT, humidity FLOAT, clouds FLOAT)''')
-    # cur.execute('''CREATE TABLE IF NOT EXISTS Weather (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
-    # temp FLOAT, pressure FLOAT, humidity FLOAT, clouds FLOAT)''')
-    
-    #Determine how many rows are present in db currently
-    cur.execute('''SELECT COUNT(*) FROM Weather''')
-    num_rows = cur.fetchone()[0]
 
-    cur.execute('''SELECT MAX(id) FROM Weather''')
-    last_id = cur.fetchone()[0]
-    if last_id is None:
-       last_id = -1
-    start_id = last_id +1
+    # From State table: get state ids
+    state_ids = {}
+    cur.execute("SELECT id, state_abbr FROM State")
+    for row in cur.fetchall():
+        state_ids[row[1]] = row[0]
 
-    #Set a limit to only allow 25 items to be added to the database each time the code is run
-    items_adding = 0
+    # Get cities that have been added already
+    cur.execute("SELECT city_name FROM Weather")
+    cities_added = set(row[0] for row in cur.fetchall())
 
+    # Add data to Weather table for next 25 items
+    items_added = 0
     for state in weather:
-        if num_rows>=100:
-            break
-        if items_adding >= 25:
-            break
         for city in weather[state]:
-            if num_rows >= 100:
+            if items_added >= 25:
                 break
-            if items_adding >= 25:
-                break
-            city_n = city
+            if city in cities_added:
+                continue
             temp = round(weather[state][city]["temp_medium"], 2)
             ps = round(weather[state][city]["pressure_medium"], 2)
             hum = round(weather[state][city]["humidity_medium"], 2)
             clouds = round(weather[state][city]["clouds_medium"], 2)
-            cur.execute('SELECT id FROM State WHERE state_abbr = ?', (state, ))
-            state_id = cur.fetchone()
-            cur.execute("INSERT OR IGNORE INTO Weather (id, city_name, state_id, temp, pressure, humidity, clouds) VALUES (?,?,?,?,?,?,?)",
-                        (start_id, city_n, state_id[0], temp, ps, hum, clouds))    
-            items_adding += 1
-            num_rows += 1
-            start_id += 1
+            cur.execute('''SELECT COUNT(*) FROM Weather WHERE temp = ? AND pressure = ? AND humidity = ? AND clouds = ?''',
+                        (temp, ps, hum, clouds))
+            if cur.fetchone()[0] == 0:
+                cur.execute("INSERT INTO Weather (city_name, state_id, temp, pressure, humidity, clouds) VALUES (?, ?, ?, ?, ?, ?)",
+                            (city, state_ids[state], temp, ps, hum, clouds))
+                items_added += 1
+                cities_added.add(city)
+            else:
+                print(f"Skipping duplicate data for {city}, {state}")
+        if items_added >= 25:
+            break
     conn.commit()
-    if items_adding >= 25:
-        items_adding = 0
 
 
 def make_health_table(filename, cur, conn):
     health = load_json(filename)
-    cur.execute('''DROP TABLE IF EXISTS Health''')
-    cur.execute('''CREATE TABLE Health (city_id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
-    depression FLOAT, mh_not_good FLOAT, sleep_less_7 FLOAT, no_leis_phy_act FLOAT)''')
-    # cur.execute("CREATE TABLE IF NOT EXISTS Health (city_id INTEGER PRIMARY KEY, depression FLOAT, mh_not_good FLOAT, sleep_less_7 FLOAT, no_leis_phy_act FLOAT)")
+    
+    # create Health table if it doesn't exist
+    cur.execute('''CREATE TABLE IF NOT EXISTS Health (
+               city_id INTEGER PRIMARY KEY,
+               city_name TEXT,
+               state_id INTEGER,
+               depression FLOAT,
+               mh_not_good FLOAT,
+               sleep_less_7 FLOAT,
+               no_leis_phy_act FLOAT,
+               FOREIGN KEY (city_id) REFERENCES Weather (id)
+             )''')
+    # From weather table: get cities and ids that have already been added
+    cur.execute("SELECT city_name, id FROM Weather")
+    cities_added = dict(row for row in cur.fetchall())
+
+    # Row counter per run
+    items_added = 0
+
+    # Loop through health dict
     for state in health:
         for city in health[state]:
-            city_n = city
-            dep = health[state][city]["depression"]
-            mh = health[state][city]["mh_not_good"]
-            sleep = health[state][city]["sleep_less_7"]
-            phy = health[state][city]["no_leis_phy_act"]
-        
-            cur.execute('SELECT id FROM Weather WHERE city_name = ?', (city_n, ))
-            c_id = cur.fetchone()
-            cur.execute('SELECT id FROM State WHERE state_abbr = ?', (state, ))
-            state_id = cur.fetchone()
-            cur.execute("INSERT OR IGNORE INTO Health (city_id, city_name, state_id, depression, mh_not_good, sleep_less_7, no_leis_phy_act) VALUES (?,?,?,?,?,?,?)", 
-                        (c_id[0], city_n, state_id[0], dep, mh, sleep, phy))
+            if items_added >= 25:
+                break
+
+            # Check if the city has already been added
+            if city not in cities_added:
+                continue
+
+            # get ids and data for current city
+            city_id = cities_added[city]
+            state_id = cur.execute("SELECT state_id FROM Weather WHERE id = ?", (city_id,)).fetchone()[0]
+            health_data = health[state][city]
+
+            # check if city_id already corresponds to a row in Health table
+            existing_row = cur.execute("SELECT * FROM Health WHERE city_id = ?", (city_id,)).fetchone()
+            if existing_row:
+                # Update current row with health data
+                cur.execute('''UPDATE Health SET city_name = ?, state_id = ?, depression = ?, mh_not_good = ?, sleep_less_7 = ?, no_leis_phy_act = ?
+                            WHERE city_id = ?''',
+                            (city, state_id, health_data["depression"], health_data["mh_not_good"], health_data["sleep_less_7"], health_data["no_leis_phy_act"], city_id))
+            else:
+                # Insert a new row with the health data for the current city
+                cur.execute('''INSERT INTO Health (city_id, city_name, state_id, depression, mh_not_good, sleep_less_7, no_leis_phy_act) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (city_id, city, state_id, health_data["depression"], health_data["mh_not_good"], health_data["sleep_less_7"], health_data["no_leis_phy_act"]))
+        if items_added >= 25:
+            break
     conn.commit()
-
-
+   
 
 def main():
     two_city_d = get_lat("health_data_r.json", "coordinate.json")
@@ -298,7 +340,7 @@ def main():
     cur, conn = open_database("Mental_health.db")
     make_state_table("weather_data.json", cur, conn)
     make_weather_table("weather_data.json", cur, conn)
-    # make_health_table("health_data.json", cur, conn)
+    make_health_table("health_data.json", cur, conn)
     ### make_state_city_table("location_data.json", cur, conn)
 
 if __name__ == "__main__":
