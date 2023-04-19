@@ -61,7 +61,7 @@ def get_lat(f_r, f_w):
         else:
             state_d[state].update(d)
     
-    two_city_d = {}
+    three_city_d = {}
     for state in state_d:
         new_d = {}
         s_city = sorted(state_d[state].items(), key = lambda x:x[1], reverse=True)
@@ -69,19 +69,19 @@ def get_lat(f_r, f_w):
         if len(s_city) > 1:
             new_d[s_city[1][0]] = s_city[1][1][1]
             new_d[s_city[2][0]] = s_city[2][1][1]
-        two_city_d[state] = new_d
-    write_json(f_w, two_city_d)
-    # print(two_city_d)
-    return two_city_d
+        three_city_d[state] = new_d
+    write_json(f_w, three_city_d)
+    # print(three_city_d)
+    return three_city_d
 
 
-def cache_weather_data(two_city_d, weatherfile):
+def cache_weather_data(three_city_d, weatherfile):
     weather_d = {}
     base = "https://history.openweathermap.org/data/2.5/aggregated/year"
-    for state in two_city_d:
+    for state in three_city_d:
         d = {}
-        for city in two_city_d[state]:
-            dic = {"lat":two_city_d[state][city][0], "lon":two_city_d[state][city][1], "appid":"0ed702778efe831f0e3d546dc34eece3"}
+        for city in three_city_d[state]:
+            dic = {"lat":three_city_d[state][city][0], "lon":three_city_d[state][city][1], "appid":"0ed702778efe831f0e3d546dc34eece3"}
             result = get_api(base, dic)
             d[city] = result
             if state not in weather_d.keys():
@@ -90,6 +90,21 @@ def cache_weather_data(two_city_d, weatherfile):
                 weather_d[state].update(d)
     write_json(weatherfile, weather_d)
 
+
+def cache_elevation_data(three_city_d, elevationfile_r):
+    elevation_d = {}
+    base = "https://api.open-meteo.com/v1/elevation"
+    for state in three_city_d:
+        d = {}
+        for city in three_city_d[state]:
+            dic = {"latitude":three_city_d[state][city][0], "longitude":three_city_d[state][city][1]}
+            result = get_api(base, dic)
+            d[city] = result
+            if state not in elevation_d.keys():
+                elevation_d[state] = d
+            else:
+                elevation_d[state].update(d)
+    write_json(elevationfile_r, elevation_d)
 
 def process_weather_data(weatherfile_r, weatherfile):
     weather_r = load_json(weatherfile_r)
@@ -143,15 +158,15 @@ def process_weather_data(weatherfile_r, weatherfile):
     return weather_d
 
 
-def process_health_data(healthfile_r, healthfile, two_city_d):
+def process_health_data(healthfile_r, healthfile, three_city_d):
     health_r = load_json(healthfile_r)
     health_d = {}
     count = 0
     for h_city in health_r:
-        for i in two_city_d:
+        for i in three_city_d:
             city_d = {}
-            # if h_city["stateabbr"] == i and h_city["placename"] in two_city_d[i].keys():
-            if h_city["stateabbr"] == i and h_city["placename"] in two_city_d[i].keys():
+            # if h_city["stateabbr"] == i and h_city["placename"] in three_city_d[i].keys():
+            if h_city["stateabbr"] == i and h_city["placename"] in three_city_d[i].keys():
                 hd = {}
                 if "depression_crudeprev" in h_city.keys():
                     hd["depression"] = float(h_city["depression_crudeprev"])
@@ -331,16 +346,60 @@ def make_health_table(filename, cur, conn):
             break
     conn.commit()
    
+def make_elevation_table(filename, cur, conn):
+    elevation_file = load_json(filename)
+
+    # create Elevation table if it doesn't already exist
+    cur.execute('''CREATE TABLE IF NOT EXISTS Elevation (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
+    elevation FLOAT)''')
+
+    # From State table: get state ids
+    state_ids = {}
+    cur.execute("SELECT id, state_abbr FROM State")
+    for row in cur.fetchall():
+        state_ids[row[1]] = row[0]
+
+    # Get cities that have been added already
+    cur.execute("SELECT city_name FROM Elevation")
+    cities_added = set(row[0] for row in cur.fetchall())
+
+    # Add data to Elevation table for next 25 items
+    items_added = 0
+    for state in elevation_file:
+        for city in elevation_file[state]:
+            if items_added >= 25:
+                break
+            if city in cities_added:
+                continue
+            elevation = elevation_file[state][city]["elevation"]
+            cur.execute('''SELECT COUNT(*) FROM Elevation WHERE elevation = ?''',
+                        (elevation))
+            if cur.fetchone()[0] == 0:
+                state_id = state_ids[state]
+                city_name = city
+                city_elevation = elevation[0]
+                cur.execute("INSERT INTO Elevation (city_name, state_id, elevation) VALUES (?, ?, ?)",
+                            (city, state_id, city_elevation))
+                items_added += 1
+                cities_added.add(city)
+            else:
+                print(f"Skipping duplicate data for {city}, {state}")
+        if items_added >= 25:
+            break
+    conn.commit()
 
 def main():
-    two_city_d = get_lat("health_data_r.json", "coordinate.json")
-    ### cache_weather_data(two_city_d, "weather_data_raw.json")
+    three_city_d = get_lat("health_data_r.json", "coordinate.json")
+    ###cache_health_data("health_data_r.json")
+    ###cache_weather_data(three_city_d, "weather_data_raw.json")
+    ###cache_elevation_data(three_city_d, "elevation_data.json")
     process_weather_data("weather_data_raw.json", "weather_data.json")
-    process_health_data("health_data_r.json", "health_data.json", two_city_d)
+    process_health_data("health_data_r.json", "health_data.json", three_city_d)
     cur, conn = open_database("Mental_health.db")
     make_state_table("weather_data.json", cur, conn)
     make_weather_table("weather_data.json", cur, conn)
     make_health_table("health_data.json", cur, conn)
+    make_elevation_table("elevation_data_raw.json", cur, conn)
     ### make_state_city_table("location_data.json", cur, conn)
 
 if __name__ == "__main__":
