@@ -142,7 +142,7 @@ def make_health_table(filename, cur, conn):
                FOREIGN KEY (city_id) REFERENCES Weather (id)
              )''')
     # From weather table: get cities and ids that have already been added
-    cur.execute("SELECT city_name, id FROM Weather")
+    cur.execute("SELECT city_name, city_id FROM Weather")
     cities_added = dict(row for row in cur.fetchall())
     # Row counter per run
     items_added = 0
@@ -156,7 +156,7 @@ def make_health_table(filename, cur, conn):
                 continue
             # get ids and data for current city
             city_id = cities_added[city]
-            state_id = cur.execute("SELECT state_id FROM Weather WHERE id = ?", (city_id,)).fetchone()[0]
+            state_id = cur.execute("SELECT state_id FROM Weather WHERE city_id = ?", (city_id,)).fetchone()[0]
             health_data = health[state][city]
             # check if city_id already corresponds to a row in Health table
             existing_row = cur.execute("SELECT * FROM Health WHERE city_id = ?", (city_id,)).fetchone()
@@ -246,7 +246,7 @@ def process_weather_data(weatherfile_r, weatherfile):
 def make_weather_table(filename, cur, conn):
     weather = load_json(filename)
     # create Weather table if it doesn't already exist
-    cur.execute('''CREATE TABLE IF NOT EXISTS Weather (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
+    cur.execute('''CREATE TABLE IF NOT EXISTS Weather (city_id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
     temp FLOAT, pressure FLOAT, humidity FLOAT, clouds FLOAT)''')
     # From State table: get state ids
     state_ids = {}
@@ -257,6 +257,8 @@ def make_weather_table(filename, cur, conn):
     cur.execute("SELECT city_name FROM Weather")
     cities_added = set(row[0] for row in cur.fetchall())
     # Add data to Weather table for next 25 items
+    cur.execute("SELECT MAX(city_id) FROM Weather")
+    max_city_id = cur.fetchone()[0] or 0  # Use 0 if there are no existing rows
     items_added = 0
     for state in weather:
         for city in weather[state]:
@@ -264,6 +266,7 @@ def make_weather_table(filename, cur, conn):
                 break
             if city in cities_added:
                 continue
+            state_id = state_ids[state]
             temp = round(weather[state][city]["temp_medium"], 2)
             ps = round(weather[state][city]["pressure_medium"], 2)
             hum = round(weather[state][city]["humidity_medium"], 2)
@@ -271,10 +274,12 @@ def make_weather_table(filename, cur, conn):
             cur.execute('''SELECT COUNT(*) FROM Weather WHERE temp = ? AND pressure = ? AND humidity = ? AND clouds = ?''',
                         (temp, ps, hum, clouds))
             if cur.fetchone()[0] == 0:
-                cur.execute("INSERT INTO Weather (city_name, state_id, temp, pressure, humidity, clouds) VALUES (?, ?, ?, ?, ?, ?)",
-                            (city, state_ids[state], temp, ps, hum, clouds))
+                city_id = max_city_id + 1 
+                cur.execute("INSERT INTO Weather (city_id, city_name, state_id, temp, pressure, humidity, clouds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (city_id, city, state_id, temp, ps, hum, clouds))
                 items_added += 1
                 cities_added.add(city)
+                max_city_id += 1
             else:
                 print(f"Skipping duplicate data for {city}, {state}")
         if items_added >= 25:
@@ -290,7 +295,8 @@ def cache_elevation_data(three_city_d, elevationfile_r):
         for city in three_city_d[state]:
             dic = {"latitude":three_city_d[state][city][0], "longitude":three_city_d[state][city][1]}
             result = get_api(base, dic)
-            d[city] = result
+            elevation = result['elevation'][0]
+            d[city] = elevation
             if state not in elevation_d.keys():
                 elevation_d[state] = d
             else:
@@ -301,7 +307,7 @@ def make_elevation_table(filename, cur, conn):
     elevation_file = load_json(filename)
 
     # create Elevation table if it doesn't already exist
-    cur.execute('''CREATE TABLE IF NOT EXISTS Elevation (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
+    cur.execute('''CREATE TABLE IF NOT EXISTS Elevation (city_id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
     elevation FLOAT)''')
 
     # From State table: get state ids
@@ -309,9 +315,11 @@ def make_elevation_table(filename, cur, conn):
     cur.execute("SELECT id, state_abbr FROM State")
     for row in cur.fetchall():
         state_ids[row[1]] = row[0]
+    cities = elevation_file[state]
 
-    # Get cities that have been added already
-    cur.execute("SELECT city_name FROM Elevation")
+
+    # Get cities that have been added to Weather already
+    cur.execute("SELECT city_name FROM Weather")
     cities_added = set(row[0] for row in cur.fetchall())
 
     # Add data to Elevation table for next 25 items
@@ -320,21 +328,17 @@ def make_elevation_table(filename, cur, conn):
         for city in elevation_file[state]:
             if items_added >= 25:
                 break
-            if city in cities_added:
+            if city not in cities_added:
                 continue
-            elevation = elevation_file[state][city]["elevation"]
-            cur.execute('''SELECT COUNT(*) FROM Elevation WHERE elevation = ?''',
-                        (elevation))
-            if cur.fetchone()[0] == 0:
-                state_id = state_ids[state]
-                city_name = city
-                city_elevation = elevation[0]
-                cur.execute("INSERT INTO Elevation (city_name, state_id, elevation) VALUES (?, ?, ?)",
-                            (city, state_id, city_elevation))
-                items_added += 1
-                cities_added.add(city)
-            else:
-                print(f"Skipping duplicate data for {city}, {state}")
+            elevation = elevation_file[state][city]
+            state_id = state_ids[state]
+            city_id, city_name = cities[city]
+            cur.execute("SELECT city_id, city_name FROM Weather WHERE city_name=?", (city,))
+            for row in cur.fetchall():
+                cities[row[1]] = (row[0], row[1])
+            cur.execute("INSERT INTO Elevation (city_id, city_name, state_id, elevation) VALUES (?, ?, ?, ?)",
+                (city_id, city_name, state_id, elevation))
+            items_added += 1
         if items_added >= 25:
             break
     conn.commit()
@@ -388,8 +392,8 @@ def main():
     make_state_table("weather_data.json", cur, conn)
     make_weather_table("weather_data.json", cur, conn)
     make_health_table("health_data.json", cur, conn)
-    make_elevation_table("elevation_data_raw.json", cur, conn)
-    ### make_state_city_table("location_data.json", cur, conn)
+    make_elevation_table("elevation_data.json", cur, conn)
+    # make_state_city_table("location_data.json", cur, conn)
 
 if __name__ == "__main__":
     main()
