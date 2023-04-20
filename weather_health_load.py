@@ -365,7 +365,7 @@ def make_state_table(filename, cur, conn):
     conn.commit()
 
 
-def cache_sun_data(three_city_d, sunfile):
+def cache_sun_data(three_city_d, sunfile_r):
     sun_d = {}
     base = "https://archive-api.open-meteo.com/v1/archive"
     for state in three_city_d:
@@ -380,7 +380,7 @@ def cache_sun_data(three_city_d, sunfile):
                 sun_d[state] = d
             else:
                 sun_d[state].update(d)
-    write_json(sunfile, sun_d)
+    write_json(sunfile_r, sun_d)
 
 
 def process_sun_data(sunfile_r, sunfile):
