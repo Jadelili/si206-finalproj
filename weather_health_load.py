@@ -247,7 +247,7 @@ def process_weather_data(weatherfile_r, weatherfile):
 def make_weather_table(filename, cur, conn):
     weather = load_json(filename)
     # create Weather table if it doesn't already exist
-    cur.execute('''CREATE TABLE IF NOT EXISTS Weather (city_id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
+    cur.execute('''CREATE TABLE IF NOT EXISTS Weather (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
     temp FLOAT, pressure FLOAT, humidity FLOAT, clouds FLOAT)''')
     # From State table: get state ids
     state_ids = {}
@@ -258,7 +258,7 @@ def make_weather_table(filename, cur, conn):
     cur.execute("SELECT city_name FROM Weather")
     cities_added = set(row[0] for row in cur.fetchall())
     # Add data to Weather table for next 25 items
-    cur.execute("SELECT MAX(city_id) FROM Weather")
+    cur.execute("SELECT MAX(id) FROM Weather")
     max_city_id = cur.fetchone()[0] or 0  # Use 0 if there are no existing rows
     items_added = 0
     for state in weather:
@@ -276,7 +276,7 @@ def make_weather_table(filename, cur, conn):
                         (temp, ps, hum, clouds))
             if cur.fetchone()[0] == 0:
                 city_id = max_city_id + 1 
-                cur.execute("INSERT OR IGNORE INTO Weather (city_id, city_name, state_id, temp, pressure, humidity, clouds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                cur.execute("INSERT OR IGNORE INTO Weather (id, city_name, state_id, temp, pressure, humidity, clouds) VALUES (?, ?, ?, ?, ?, ?, ?)",
                             (city_id, city, state_id, temp, ps, hum, clouds))
                 items_added += 1
                 cities_added.add(city)
@@ -304,6 +304,7 @@ def cache_elevation_data(three_city_d, elevationfile_r):
                 elevation_d[state].update(d)
     write_json(elevationfile_r, elevation_d)
 
+
 def make_elevation_table(filename, cur, conn):
     elevation_file = load_json(filename)
 
@@ -325,7 +326,7 @@ def make_elevation_table(filename, cur, conn):
             if city not in cities_added:
                 continue
             elevation = elevation_file[state][city]
-            cur.execute('SELECT city_id FROM Weather WHERE city_name = ?', (city, ))
+            cur.execute('SELECT id FROM Weather WHERE city_name = ?', (city, ))
             c_id = cur.fetchone()[0]
             cur.execute('SELECT id FROM State WHERE state_abbr = ?', (state, ))
             state_id = cur.fetchone()[0]
@@ -335,17 +336,6 @@ def make_elevation_table(filename, cur, conn):
             cities_added.add(city)
         if items_added >= 25:
             break
-    conn.commit()
-
-
-def make_state_city_table(filename, cur, conn):
-    loc = load_json(filename)
-    cur.execute("CREATE TABLE IF NOT EXISTS Location (city_id INTEGER PRIMARY KEY, city_name TEXT, state_abbr TEXT)")
-    for state in loc:
-        for city in loc[state]:
-            cur.execute('SELECT id FROM Weather WHERE city_name = ?', (city, ))
-            c_id = cur.fetchone()
-            cur.execute("INSERT OR IGNORE INTO Location (city_id, city_name, state_abbr) VALUES (?,?,?)", (c_id[0], city, state))
     conn.commit()
 
 
@@ -371,7 +361,7 @@ def make_state_table(filename, cur, conn):
             cur.execute("INSERT OR IGNORE INTO State (id, state_abbr) VALUES (?,?)", (num_states_added, state))
             num_states_added += 1
             items_added += 1
-            
+        
     conn.commit()
 
 
