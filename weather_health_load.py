@@ -253,9 +253,10 @@ def make_weather_table(filename, cur, conn):
     cur.execute("SELECT id, state_abbr FROM State")
     for row in cur.fetchall():
         state_ids[row[1]] = row[0]
+    
     # Get cities that have been added already
     cur.execute("SELECT city_name FROM Weather")
-    cities_added = set(row[0] for row in cur.fetchall())
+    cities_added = [row[0] for row in cur.fetchall()]
     # Add data to Weather table for next 25 items
     cur.execute("SELECT MAX(id) FROM Weather")
     max_city_id = cur.fetchone()[0] or 0  # Use 0 if there are no existing rows
@@ -278,7 +279,7 @@ def make_weather_table(filename, cur, conn):
                 cur.execute("INSERT OR IGNORE INTO Weather (id, city_name, state_id, temp, pressure, humidity, clouds) VALUES (?, ?, ?, ?, ?, ?, ?)",
                             (city_id, city, state_id, temp, ps, hum, clouds))
                 items_added += 1
-                cities_added.add(city)
+                cities_added.append(city)
                 max_city_id += 1
             else:
                 print(f"Skipping duplicate data for {city}, {state}")
@@ -306,18 +307,18 @@ def cache_elevation_data(three_city_d, elevationfile_r):
 
 def make_elevation_table(filename, cur, conn):
     elevation_file = load_json(filename)
-
     # create Elevation table if it doesn't already exist
-    cur.execute('''CREATE TABLE IF NOT EXISTS Elevation (city_id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
+    cur.execute('''CREATE TABLE IF NOT EXISTS Elevation (id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
     elevation FLOAT)''')
-
     # Get cities that have been added to Weather already
     cur.execute("SELECT city_name FROM Weather")
-    cities_added = set(row[0] for row in cur.fetchall())
-
-    # Add data to Elevation table for next 25 items
+    cities_added = [row[0] for row in cur.fetchall()]
+    cur.execute("SELECT MAX(id) FROM Elevation")
+    max_city_id = cur.fetchone()[0] or 0  # Use 0 if there are no existing rows
     items_added = 0
-    # max_city_id = cur.fetchone()[0] or 0  # Use 0 if there are no existing rows
+    # Set the starting index for the loop to the next ID after the maximum
+    next_id = max_city_id + 1
+# Loop through the cities in the elevation file starting at next_id
     for state in elevation_file:
         for city in elevation_file[state]:
             if items_added >= 25:
@@ -329,14 +330,17 @@ def make_elevation_table(filename, cur, conn):
             c_id = cur.fetchone()[0]
             cur.execute('SELECT id FROM State WHERE state_abbr = ?', (state, ))
             state_id = cur.fetchone()[0]
-            cur.execute("INSERT OR IGNORE INTO Elevation (city_id, city_name, state_id, elevation) VALUES (?, ?, ?, ?)",
-                (c_id, city, state_id, elevation))
+            cur.execute('SELECT COUNT(*) FROM Elevation WHERE city_name = ?', (city,))
+            if cur.fetchone()[0] > 0:
+                continue
+            cur.execute("INSERT OR IGNORE INTO Elevation (id, city_name, state_id, elevation) VALUES (?, ?, ?, ?)",
+                (next_id, city, state_id, elevation))
             items_added += 1
-            cities_added.add(city)
+            cities_added.append(city)
+            next_id += 1
         if items_added >= 25:
             break
     conn.commit()
-
 
 def make_state_table(filename, cur, conn):
     loc = load_json(filename)
@@ -414,14 +418,14 @@ def process_sun_data(sunfile_r, sunfile):
                 duration_day = sunset - sunrise
                 duration += duration_day
             
-            d["temp"] = temp / day_num
-            d["app_temp"] = app_temp / day_num
-            d["rad"] = rad / day_num
-            d["prec"] = prec / day_num
-            d["rain"] = rain / day_num
-            d["snow"] = snow / day_num
-            d["prec_hours"] = prec_h / day_num
-            d["sunlight_hours"] = duration / day_num
+            d["temp"] = round(temp / day_num, 2)
+            d["app_temp"] = round(app_temp / day_num, 2)
+            d["rad"] = round(rad / day_num, 2)
+            d["prec"] = round(prec / day_num, 2)
+            d["rain"] = round(rain / day_num, 2)
+            d["snow"] = round(snow / day_num, 2)
+            d["prec_hours"] = round(prec_h / day_num, 2)
+            d["sunlight_hours"] = round(duration / day_num, 2)
 
             if state == "WV" and city == "Charleston":
                 city_d["Charleston_WV"] = d
@@ -445,7 +449,7 @@ def main():
     ###cache_health_data("health_data_r.json")
     ###cache_weather_data(three_city_d, "weather_data_raw.json")
     ###cache_elevation_data(three_city_d, "elevation_data.json")
-    ### cache_sun_data(three_city_d, "sun_data_r.json")
+    ###cache_sun_data(three_city_d, "sun_data_r.json")
     process_weather_data("weather_data_raw.json", "weather_data.json")
     process_health_data("health_data_r.json", "health_data.json", three_city_d)
     process_sun_data("sun_data_r.json", "sun_data.json")
