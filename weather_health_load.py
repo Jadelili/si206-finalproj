@@ -1,3 +1,4 @@
+weather_health_load.py
 import os
 import json
 import requests
@@ -167,7 +168,7 @@ def make_health_table(filename, cur, conn):
                             (city, state_id, health_data["depression"], health_data["mh_not_good"], health_data["sleep_less_7"], health_data["no_leis_phy_act"], city_id))
             else:
                 # Insert a new row with the health data for the current city
-                cur.execute('''INSERT INTO Health (city_id, city_name, state_id, depression, mh_not_good, sleep_less_7, no_leis_phy_act) 
+                cur.execute('''INSERT OR IGNORE INTO Health (city_id, city_name, state_id, depression, mh_not_good, sleep_less_7, no_leis_phy_act) 
                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
                 (city_id, city, state_id, health_data["depression"], health_data["mh_not_good"], health_data["sleep_less_7"], health_data["no_leis_phy_act"]))
         if items_added >= 25:
@@ -275,7 +276,7 @@ def make_weather_table(filename, cur, conn):
                         (temp, ps, hum, clouds))
             if cur.fetchone()[0] == 0:
                 city_id = max_city_id + 1 
-                cur.execute("INSERT INTO Weather (city_id, city_name, state_id, temp, pressure, humidity, clouds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                cur.execute("INSERT OR IGNORE INTO Weather (city_id, city_name, state_id, temp, pressure, humidity, clouds) VALUES (?, ?, ?, ?, ?, ?, ?)",
                             (city_id, city, state_id, temp, ps, hum, clouds))
                 items_added += 1
                 cities_added.add(city)
@@ -310,20 +311,13 @@ def make_elevation_table(filename, cur, conn):
     cur.execute('''CREATE TABLE IF NOT EXISTS Elevation (city_id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
     elevation FLOAT)''')
 
-    # From State table: get state ids
-    state_ids = {}
-    cur.execute("SELECT id, state_abbr FROM State")
-    for row in cur.fetchall():
-        state_ids[row[1]] = row[0]
-    cities = elevation_file[state]
-
-
     # Get cities that have been added to Weather already
     cur.execute("SELECT city_name FROM Weather")
     cities_added = set(row[0] for row in cur.fetchall())
 
     # Add data to Elevation table for next 25 items
     items_added = 0
+    # max_city_id = cur.fetchone()[0] or 0  # Use 0 if there are no existing rows
     for state in elevation_file:
         for city in elevation_file[state]:
             if items_added >= 25:
@@ -331,14 +325,14 @@ def make_elevation_table(filename, cur, conn):
             if city not in cities_added:
                 continue
             elevation = elevation_file[state][city]
-            state_id = state_ids[state]
-            city_id, city_name = cities[city]
-            cur.execute("SELECT city_id, city_name FROM Weather WHERE city_name=?", (city,))
-            for row in cur.fetchall():
-                cities[row[1]] = (row[0], row[1])
-            cur.execute("INSERT INTO Elevation (city_id, city_name, state_id, elevation) VALUES (?, ?, ?, ?)",
-                (city_id, city_name, state_id, elevation))
+            cur.execute('SELECT city_id FROM Weather WHERE city_name = ?', (city, ))
+            c_id = cur.fetchone()[0]
+            cur.execute('SELECT id FROM State WHERE state_abbr = ?', (state, ))
+            state_id = cur.fetchone()[0]
+            cur.execute("INSERT OR IGNORE INTO Elevation (city_id, city_name, state_id, elevation) VALUES (?, ?, ?, ?)",
+                (c_id, city, state_id, elevation))
             items_added += 1
+            cities_added.add(city)
         if items_added >= 25:
             break
     conn.commit()
@@ -374,7 +368,7 @@ def make_state_table(filename, cur, conn):
         cur.execute("SELECT id FROM State WHERE state_abbr = ?", (state,))
         state_id = cur.fetchone()
         if state_id is None:
-            cur.execute("INSERT INTO State (id, state_abbr) VALUES (?,?)", (num_states_added, state))
+            cur.execute("INSERT OR IGNORE INTO State (id, state_abbr) VALUES (?,?)", (num_states_added, state))
             num_states_added += 1
             items_added += 1
             
