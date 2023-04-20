@@ -172,8 +172,6 @@ def make_health_table(filename, cur, conn):
                 cur.execute('''INSERT OR IGNORE INTO Health (city_id, city_name, state_id, depression, mh_not_good, sleep_less_7, no_leis_phy_act) 
                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
                 (city_id, city, state_id, health_data["depression"], health_data["mh_not_good"], health_data["sleep_less_7"], health_data["no_leis_phy_act"]))
-        if items_added >= 25:
-            break
     conn.commit()
 
 
@@ -285,8 +283,6 @@ def make_weather_table(filename, cur, conn):
                 max_city_id += 1
             else:
                 print(f"Skipping duplicate data for {city}, {state}")
-        if items_added >= 25:
-            break
     conn.commit()
 
 
@@ -340,8 +336,6 @@ def make_elevation_table(filename, cur, conn):
             items_added += 1
             cities_added.append(city)
             next_id += 1
-        if items_added >= 25:
-            break
     conn.commit()
 
 
@@ -496,8 +490,6 @@ def make_sun_table(filename, cur, conn):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                 (city_id, city, state_id, sun_data["temp"], sun_data["app_temp"], sun_data["rad"], sun_data["prec"], sun_data["rain"], sun_data["snow"], 
                              sun_data["prec_hours"], sun_data["sunlight_hours"]))
-        if items_added >= 25:
-            break
     conn.commit()
 
 
