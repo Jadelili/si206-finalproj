@@ -307,7 +307,7 @@ def make_elevation_table(filename, cur, conn):
     elevation_file = load_json(filename)
     # create Elevation table if it doesn't already exist
     cur.execute('''CREATE TABLE IF NOT EXISTS Elevation (city_id INTEGER PRIMARY KEY, city_name TEXT, state_id INTEGER, 
-    elevation FLOAT)''')
+    elevation INTEGER)''')
     # Get cities that have been added to Weather already
     cur.execute("SELECT city_name FROM Weather")
     cities_added = [row[0] for row in cur.fetchall()]
@@ -493,85 +493,25 @@ def make_sun_table(filename, cur, conn):
     conn.commit()
 
 
-# def join_tables(cur, conn):
-#     cur.execute('''CREATE TABLE IF NOT EXISTS CombinedData 
-#                     (id INTEGER PRIMARY KEY, city_name TEXT,
-#                     elevation FLOAT, temp FLOAT, humidity FLOAT, pressure FLOAT, clouds FLOAT, 
-#                     precipitation FLOAT, sunlight FLOAT, depression FLOAT, lack_of_sleep FLOAT, 
-#                     physical_activity FLOAT)''')
-   
-#     cur.execute('''SELECT Weather.id, Weather.city_name, Elevation.elevation, 
-#                     Weather.temp, Weather.humidity, Weather.pressure, Weather.clouds, 
-#                     Weather.precipitation, Sun.sunlight, Health.depression, Health.lack_of_sleep, 
-#                     Health.physical_activity 
-#                     FROM Weather
-#                     JOIN Elevation ON Weather.id=Elevation.id 
-#                     JOIN Sun ON Weather.id=Sun.id 
-#                     JOIN Health ON Weather.id=Health.id''')
-
-#     results = cur.fetchall()
-
-#     cur.executemany('''INSERT INTO CombinedData 
-#                         (id, city_name, elevation, temp, humidity, pressure, clouds, 
-#                         precipitation, sunlight, depression, lack_of_sleep, physical_activity) 
-#                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', results)
-
-#     conn.commit()
-
-
-# def sun_depression(cur, filename):
-#     cur.execute('''SELECT Sun.id, Sun.sunlight_hours, Weather.clouds, Health.depression 
-#                     FROM Sun 
-#                     JOIN Weather ON Sun.id = Weather.id 
-#                     JOIN Health ON Sun.id = Health.id''')
-#     data = cur.fetchall()
-
-#     # Scale the data
-#     scaled_data = []
-#     for row in data:
-#         scaled_row = [(float(val) - min(row)) / (max(row) - min(row)) for val in row]
-#         scaled_data.append(scaled_row)
-
-#     # Calculate the correlation matrix
-#     correlation_matrix = np.corrcoef(scaled_data, rowvar=False)
-
-#     # Write the correlation matrix to a CSV file
-#     with open('correlation_matrix.csv', 'w', newline='') as csvfile:
-#         writer = csv.writer(csvfile)
-#         writer.writerows(correlation_matrix)
-
-
-
-
-# def calculations_two(cur,conn):
-#     cur.execute('''SELECT c''')
-
-# def make_plot_one(cur, conn):
-
-# def make_plot_two(cur, conn):
-
-
 def main():
     three_city_d = get_lat("health_data_r.json", "coordinate.json")
     ###cache_health_data("health_data_r.json")
     ###cache_weather_data(three_city_d, "weather_data_raw.json")
     ###cache_elevation_data(three_city_d, "elevation_data.json")
     ###cache_sun_data(three_city_d, "sun_data_r.json")
+
+    cur, conn = open_database("Mental_health.db")
+    
     process_weather_data("weather_data_raw.json", "weather_data.json")
     process_health_data("health_data_r.json", "health_data.json", three_city_d)
     process_sun_data("sun_data_r.json", "sun_data.json")
-    cur, conn = open_database("Mental_health.db")
+
     make_state_table("weather_data.json", cur, conn)
     make_weather_table("weather_data.json", cur, conn)
     make_health_table("health_data.json", cur, conn)
     make_elevation_table("elevation_data.json", cur, conn)
     make_sun_table("sun_data.json", cur, conn)
-    # sun_depression(cur, "sun_depression.csv")
-    # join_tables(cur, conn)
-    # calculations_one(cur,conn)
-    # calculations_two(cur,conn)
-    # make_plot_one(cur,conn)
-    # make_plot_two(cur,conn)
+
 
 if __name__ == "__main__":
     main()
