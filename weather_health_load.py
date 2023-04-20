@@ -1,4 +1,3 @@
-weather_health_load.py
 import os
 import json
 import requests
@@ -143,7 +142,7 @@ def make_health_table(filename, cur, conn):
                FOREIGN KEY (city_id) REFERENCES Weather (id)
              )''')
     # From weather table: get cities and ids that have already been added
-    cur.execute("SELECT city_name, city_id FROM Weather")
+    cur.execute("SELECT city_name, id FROM Weather")
     cities_added = dict(row for row in cur.fetchall())
     # Row counter per run
     items_added = 0
@@ -157,7 +156,7 @@ def make_health_table(filename, cur, conn):
                 continue
             # get ids and data for current city
             city_id = cities_added[city]
-            state_id = cur.execute("SELECT state_id FROM Weather WHERE city_id = ?", (city_id,)).fetchone()[0]
+            state_id = cur.execute("SELECT state_id FROM Weather WHERE id = ?", (city_id,)).fetchone()[0]
             health_data = health[state][city]
             # check if city_id already corresponds to a row in Health table
             existing_row = cur.execute("SELECT * FROM Health WHERE city_id = ?", (city_id,)).fetchone()
