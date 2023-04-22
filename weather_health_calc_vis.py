@@ -138,28 +138,45 @@ def vis_dep_sun_states(state_list, filename):
     fig = plt.figure(figsize=(10,4))
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
     ax1 = fig.add_subplot(121)
-    ax1.set_title("Depression vs Sunlight Duration of the Day", fontsize=12)
+    ax1.set_title("Depression vs Sunlight Duration of the Day by State", fontsize=12)
     ax1.set_xlabel("Sunlight Duration")
     ax1.set_ylabel("Depression")
     ax1.grid()
 
+    sunlight_hours_list = []
+    depression_list = []
     for state in state_d:
-        plt.scatter(state_d[state]["sunlight_hours"], state_d[state]["depression"], c="lightblue")
+        sunlight_hours_list.append(state_d[state]["sunlight_hours"])
+        depression_list.append(state_d[state]["depression"])
+    sh_list = np.array(sunlight_hours_list)
+    dp_list = np.array(depression_list)
+    a, b = np.polyfit(sh_list, dp_list, 1)
+
+    plt.scatter(sunlight_hours_list, depression_list, c="lightblue")
+    plt.plot(sh_list, a * sh_list + b)
     ax1.set_xlim(580,680)
     ax1.set_ylim(12,30)
     
     
     ax2 = fig.add_subplot(122)
-    ax2.set_title("Depression vs Radiation", fontsize=12)
+    ax2.set_title("Depression vs Radiation by State", fontsize=12)
     ax2.set_xlabel("Radiation")
     ax2.set_ylabel("Depression")
     ax2.grid()
     
+    radiation_list = []
     for state in state_d: 
-        plt.scatter(state_d[state]["radiation"], state_d[state]["depression"], c="lightgreen")
+        radiation_list.append(state_d[state]["radiation"])
+    r_list = np.array(radiation_list)
+    m, n = np.polyfit(r_list, dp_list, 1)
+    plt.scatter(radiation_list, depression_list, c="lightgreen")
+    plt.plot(r_list, m * r_list + n, c="green")      
+
     ax2.set_xlim(0,20)
     ax2.set_ylim(12,30)
     plt.savefig('dep_sun_corr')
+    # plt.show()
+
 
 def create_radar_chart(cur, conn):
         cur, conn = open_database('Mental_health.db')
@@ -184,7 +201,7 @@ def create_radar_chart(cur, conn):
         values = []
         for i, state in enumerate(df.index):
             value = df.loc[state, radar_cols].values.flatten().tolist()
-            value += [value[0]]  
+            value += [value[0]]
             scaled_value = [val * (len(radar_cols) / (len(radar_cols) + 1)) for val in value[:-1]] 
             values.append(scaled_value)
         fig = plt.figure(figsize=(15, 10))
@@ -215,11 +232,11 @@ def main():
     state_list = []
     for i in result:
         state_list.append(i[0])
-    write_overview(cur, conn, state_list, "CALC_dep_states_overview.json")
-    vis_overview(state_list, "CALC_dep_states_overview.json")
+    # write_overview(cur, conn, state_list, "CALC_dep_states_overview.json")
+    # vis_overview(state_list, "CALC_dep_states_overview.json")
     write_dep_sun_states(cur, conn, state_list, "CALC_dep_sun_corr.json")
     vis_dep_sun_states(state_list, "CALC_dep_sun_corr.json")
-    create_radar_chart(cur, conn)
+    # create_radar_chart(cur, conn)
 
 
     
