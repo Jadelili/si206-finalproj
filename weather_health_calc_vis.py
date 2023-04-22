@@ -45,13 +45,11 @@ def write_overview(cur, conn, state_list, filename):
         mh_list.append(mh_avg)
         sleep_list.append(sleep_avg)
         leisure_list.append(act_avg)
-    # print(dep_list)
 
     s_dep_list = scaled_x = (dep_list - np.min(dep_list)) / (np.max(dep_list) - np.min(dep_list)) * 10
     s_mh_list = (mh_list - np.min(mh_list)) / (np.max(mh_list) - np.min(mh_list)) * 10
     s_sleep_list = (sleep_list - np.min(sleep_list)) / (np.max(sleep_list) - np.min(sleep_list)) * 10
     s_leisure_list = (leisure_list - np.min(leisure_list)) / (np.max(leisure_list) - np.min(leisure_list)) * 10
-    # print(s_dep_list)
 
     state_d = {}
     for i in range(len(state_list)):
@@ -62,7 +60,6 @@ def write_overview(cur, conn, state_list, filename):
         d["no_leisure_physical_activity_avg"] = round(s_leisure_list[i], 2)
         state_d[state_list[i]] = d
     write_json(filename, state_d)
-    # return state_d
 
 
 def vis_overview(state_list, filename):
@@ -94,7 +91,6 @@ def vis_overview(state_list, filename):
     ax.set_xlabel('Category', fontsize=8)
     ax.set_ylabel('State', fontsize=8)
     plt.savefig('dep_states_overview')
-    # plt.show()
 
 
 def write_dep_sun_states(cur, conn, state_list, filename):
@@ -165,6 +161,52 @@ def vis_dep_sun_states(state_list, filename):
     ax2.set_ylim(12,30)
     plt.savefig('dep_sun_corr')
 
+def create_radar_chart(cur, conn):
+        cur, conn = open_database('Mental_health.db')
+        radar_cols = ['mh_not_good', 'depression', 'no_leis_phy_act', 'sleep_less_7']
+        cur.execute('''SELECT State.state_abbr, 
+                            AVG(Health.mh_not_good) AS mh_not_good, 
+                            AVG(Health.depression) AS depression, 
+                            AVG(Health.no_leis_phy_act) AS no_leis_phy_act, 
+                            AVG(Health.sleep_less_7) AS sleep_less_7
+                    FROM Health
+                    JOIN State ON Health.state_id = State.id
+                    GROUP BY State.state_abbr''')
+        data = cur.fetchall()
+        df = pd.DataFrame(data, columns=['state'] + radar_cols)
+        df.set_index('state', inplace=True)
+        df_orig = df.copy()
+        for col in radar_cols:
+            df[col] = (df[col] - df[col].min()) / (df[col].max() - df[col].min())
+        for col in radar_cols:
+            df[col+'_orig'] = df_orig[col]
+        angles = np.linspace(0, 2 * np.pi, len(radar_cols), endpoint=False)
+        values = []
+        for i, state in enumerate(df.index):
+            value = df.loc[state, radar_cols].values.flatten().tolist()
+            value += [value[0]]  
+            scaled_value = [val * (len(radar_cols) / (len(radar_cols) + 1)) for val in value[:-1]] 
+            values.append(scaled_value)
+        fig = plt.figure(figsize=(15, 10))
+        ax = fig.add_subplot(111, polar=True)
+        ax.set_theta_offset(np.pi / 1.5)
+        ax.set_theta_direction(-1)
+        ax.set_rlabel_position(0)
+        for i, state in enumerate(df.index):
+            ax.plot(angles, values[i], linewidth=1, linestyle='solid', label=state)
+            ax.fill(angles, values[i], alpha=0.1)
+        ax.set_thetagrids(angles * 180 / np.pi, radar_cols)
+        legend = ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., ncol=2)
+        ax.set_title('Health Indicators by State', fontsize=16)
+        with open('radar_chart_values.txt', 'w') as f:
+            f.write('Unscaled values:\n')
+            f.write(df_orig.to_string(float_format='%.3f', columns=radar_cols))
+            f.write('\n\nScaled values:\n')
+            f.write(df.to_string(float_format='%.3f', columns=radar_cols))
+        
+        fig.savefig('radar_chart.png')
+        plt.close(fig)
+
 
 def main():
     cur, conn = open_database("Mental_health.db")
@@ -173,11 +215,12 @@ def main():
     state_list = []
     for i in result:
         state_list.append(i[0])
-
     write_overview(cur, conn, state_list, "CALC_dep_states_overview.json")
     vis_overview(state_list, "CALC_dep_states_overview.json")
     write_dep_sun_states(cur, conn, state_list, "CALC_dep_sun_corr.json")
     vis_dep_sun_states(state_list, "CALC_dep_sun_corr.json")
+    create_radar_chart(cur, conn)
+
 
     
 if __name__ == "__main__":
