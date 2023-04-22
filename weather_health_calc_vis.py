@@ -178,6 +178,20 @@ def vis_dep_sun_states(state_list, filename):
     # plt.show()
 
 
+def vis_dep_bar_chart(cur, conn, filename):
+    state_d = load_json(filename)
+    s_dic = sorted(state_d.items(), key = lambda x: x[1]["depression"], reverse = True)  
+    
+    fig = plt.figure(figsize=(30,12))
+    plt.suptitle("Bar Chart of Prevalence of Depression by State", fontsize=24)
+    plt.xlabel("State", fontsize=20)
+    plt.ylabel("Depression", fontsize=20)
+    for m in s_dic:
+        plt.bar(m[0], m[1]["depression"], color=("mistyrose"))
+    plt.savefig("bar_chart")
+    # plt.show()
+
+
 def create_radar_chart(cur, conn):
         cur, conn = open_database('Mental_health.db')
         radar_cols = ['mh_not_good', 'depression', 'no_leis_phy_act', 'sleep_less_7']
@@ -225,6 +239,7 @@ def create_radar_chart(cur, conn):
         plt.close(fig)
 
 
+
 def main():
     cur, conn = open_database("Mental_health.db")
     cur.execute('''SELECT state_abbr from State''')
@@ -232,11 +247,12 @@ def main():
     state_list = []
     for i in result:
         state_list.append(i[0])
-    # write_overview(cur, conn, state_list, "CALC_dep_states_overview.json")
-    # vis_overview(state_list, "CALC_dep_states_overview.json")
+    write_overview(cur, conn, state_list, "CALC_dep_states_overview.json")
+    vis_overview(state_list, "CALC_dep_states_overview.json")
     write_dep_sun_states(cur, conn, state_list, "CALC_dep_sun_corr.json")
     vis_dep_sun_states(state_list, "CALC_dep_sun_corr.json")
-    # create_radar_chart(cur, conn)
+    vis_dep_bar_chart(cur, conn, "CALC_dep_sun_corr.json")
+    create_radar_chart(cur, conn)
 
 
     
